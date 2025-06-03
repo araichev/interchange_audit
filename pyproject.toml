@@ -1,7 +1,7 @@
 [project]
 name = "interchange-audit"
 version = "1.0.0"
-description = "Analyzing transfer data for public transport interchanges in Auckland"
+description = "Analyzing transfer data for public transport interchanges in Auckland for MRCagney job NZ3443"
 authors = [
     {name = "Alexander Raichev", email = "araichev@mrcagney.com"}
 ]
