@@ -11,14 +11,15 @@ def _():
     import marimo as mo
     import pandas as pd
     import plotly.express as px
+    from loguru import logger
 
     DATA_C = pl.Path("data/collected")
     OUT = pl.Path("outputs/")
-    return DATA_C, OUT, pd, pl, px
+    return DATA_C, OUT, logger, pd, pl, px
 
 
 @app.cell
-def _(DATA_C, OUT, pd, pl, px):
+def _(DATA_C, OUT, logger, pd, pl, px):
     def read_transfers(path: pl.Path) -> pd.DataFrame:
         """
         Read and clean raw transfers at the given path.
@@ -43,7 +44,12 @@ def _(DATA_C, OUT, pd, pl, px):
                     "time_display_hh24": "hour",
                     "journey_count": "num_transfers",
                     "cal_day_in_week": "day_of_week",
+                    "day_type": "is_weekday",
                 }
+            )
+            .assign(
+                is_weekday=lambda x: x["is_weekday"].str.lower() == "weekday",
+                date=lambda x: pd.to_datetime(x["date"]),
             )
         )
 
@@ -64,19 +70,91 @@ def _(DATA_C, OUT, pd, pl, px):
             template="plotly_white",
         )
 
-    # Plot and save median hourly num transfers for our interchanges for March 2025
-    for path in DATA_C.glob("*24hh.csv"):
-        f = read_transfers(path).loc[
-            lambda x: (x["date"] >= "2025-03-01") & (x["date"] <= "2025-03-31")
-        ]
-        interchange_name = " ".join(
-            path.stem.replace("_transfers_24hh", "").split("_")
-        ).title()
-        title = f"{interchange_name} : Median hourly #transfers : March 2025"
-        fig = plot_median_hourly_num_transfers(f, title)
-        fig.show()
-        fig.write_html(OUT / f"{interchange_name}.html", include_plotlyjs="cdn")
+    def split_by_month(
+        transfers: pd.DataFrame, months: list[str]
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Split the given the table of transfers into monthly datasets for the given months
+        expressed as YYYYMM date strings.
+        Return a dictionary of the form month -> transfers during month.
+        """
+        return {
+            month: transfers.loc[lambda x: x["date"].dt.strftime("%Y%m") == month]
+            for month in months
+        }
 
+    def compare(transfers: pd.DataFrame, two_months: list[str]) -> pd.DataFrame:
+        months = sorted(two_months)
+        t_by_month = split_by_month(transfers, months)
+        ts = t_by_month.values()
+        f = pd.DataFrame(
+            data={
+                "month": months,
+                "num_transfers_total": [t["num_transfers"].sum() for t in ts],
+                "num_transfers_daily_avg": [
+                    t["num_transfers"].sum() / t["date"].nunique() for t in ts
+                ],
+            }
+        )
+        f["diff_total"] = f["num_transfers_total"].diff()
+        f["pc_change_total"] = 100 * f["diff_total"] / f["num_transfers_total"].iat[0]
+        f["diff_daily_avg"] = f["num_transfers_daily_avg"].diff()
+        f["pc_change_daily_avg"] = (
+            100 * f["diff_daily_avg"] / f["num_transfers_daily_avg"].iat[0]
+        )
+        return f
+
+    def plot_median_hourly_num_transfers_grouped(
+        t1: pd.DataFrame, t2: pd.DataFrame, title=""
+    ) -> px.bar:
+        def get_median_by_hour(transfers):
+            f = (
+                transfers.groupby(["date", "hour"])
+                .sum(numeric_only=True)
+                .groupby("hour")["num_transfers"]
+                .median()
+                .reset_index()
+            )
+            f["month"] = transfers["date"].iat[0].strftime("%Y-%m")
+            return f
+
+        f = pd.concat([get_median_by_hour(t) for t in [t1, t2]], ignore_index=True)
+        return px.bar(
+            f,
+            x="hour",
+            y="num_transfers",
+            color="month",
+            barmode="group",
+            title=title,
+            labels={
+                "hour": "Hour of day",
+                "num_transfers": "Median #transfers",
+                "year": "Year",
+            },
+            template="plotly_white",
+        )
+
+    # Plot and save median hourly num transfers for our interchanges for March 2025
+    months = ["202403", "202503"]
+    for path in sorted(DATA_C.glob("*_transfers.csv")):
+        # Get interchange name from path
+        stem = path.stem.replace("_transfers", "")
+        name = " ".join(stem.split("_")).title()
+
+        # Load transfers and split by given months
+        transfers = read_transfers(path)
+        f = compare(transfers, months)
+        logger.info(name)
+        print(f)
+
+        # Plot
+        title = f"{name} : Median hourly #transfers"
+        t_by_month = split_by_month(transfers, months)
+        fig = plot_median_hourly_num_transfers_grouped(*t_by_month.values(), title=title)
+        fig.show()
+        fig.write_html(
+            OUT / f"{stem}_median_hourly_transfers_chart.html", include_plotlyjs="cdn"
+        )
     return
 
 
