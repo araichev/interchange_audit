@@ -9,6 +9,10 @@ Authors
 Changelog
 =========
 
+1.2.0, 2025-06-12
+-----------------
+- Updated analysis.
+
 1.1.0, 2025-06-05
 -----------------
 - Received new data and expanded my analysis.

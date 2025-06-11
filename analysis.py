@@ -19,7 +19,7 @@ def _():
 
 
 @app.cell
-def _(DATA_C, OUT, logger, pd, pl, px):
+def _(pd, pl, px):
     def read_transfers(path: pl.Path) -> pd.DataFrame:
         """
         Read and clean raw transfers at the given path.
@@ -53,7 +53,7 @@ def _(DATA_C, OUT, logger, pd, pl, px):
             )
         )
 
-    def plot_median_hourly_num_transfers(transfers: pd.DataFrame, title="") -> px.bar:
+    def plot_median_num_transfers_by_hour(transfers: pd.DataFrame, title="") -> px.bar:
         median = (
             transfers.groupby(["date", "hour"])
             .sum(numeric_only=True)
@@ -67,6 +67,27 @@ def _(DATA_C, OUT, logger, pd, pl, px):
             y="num_transfers",
             title=title,
             labels={"hour": "Hour of day", "num_transfers": "Median #transfers"},
+            template="plotly_white",
+        )
+
+    def plot_median_num_transfers_by_day_of_week(
+        transfers: pd.DataFrame, title=""
+    ) -> px.bar:
+        f = (
+            transfers.groupby(["date", "day_of_week"])
+            .sum(numeric_only=True)
+            .groupby("day_of_week")["num_transfers"]
+            .median()
+            .reset_index()
+        )
+        days_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        return px.bar(
+            f,
+            x="day_of_week",
+            y="num_transfers",
+            title=title,
+            labels={"day_of_week": "Day of week", "num_transfers": "Median #transfers"},
+            category_orders={"day_of_week": days_order},
             template="plotly_white",
         )
 
@@ -104,7 +125,7 @@ def _(DATA_C, OUT, logger, pd, pl, px):
         )
         return f
 
-    def plot_median_hourly_num_transfers_grouped(
+    def plot_median_num_transfers_by_hour_grouped(
         t1: pd.DataFrame, t2: pd.DataFrame, title=""
     ) -> px.bar:
         def get_median_by_hour(transfers):
@@ -134,6 +155,26 @@ def _(DATA_C, OUT, logger, pd, pl, px):
             template="plotly_white",
         )
 
+    return (
+        compare,
+        plot_median_num_transfers_by_day_of_week,
+        plot_median_num_transfers_by_hour_grouped,
+        read_transfers,
+        split_by_month,
+    )
+
+
+@app.cell
+def _(
+    DATA_C,
+    OUT,
+    compare,
+    logger,
+    plot_median_num_transfers_by_day_of_week,
+    plot_median_num_transfers_by_hour_grouped,
+    read_transfers,
+    split_by_month,
+):
     # Plot and save median hourly num transfers for our interchanges for March 2025
     months = ["202403", "202503"]
     for path in sorted(DATA_C.glob("*_transfers.csv")):
@@ -148,13 +189,24 @@ def _(DATA_C, OUT, logger, pd, pl, px):
         print(f)
 
         # Plot
-        title = f"{name} : Median hourly #transfers"
+        title = f"{name} : Median #transfers by hour"
         t_by_month = split_by_month(transfers, months)
-        fig = plot_median_hourly_num_transfers_grouped(*t_by_month.values(), title=title)
+        fig = plot_median_num_transfers_by_hour_grouped(*t_by_month.values(), title=title)
         fig.show()
         fig.write_html(
-            OUT / f"{stem}_median_hourly_transfers_chart.html", include_plotlyjs="cdn"
+            OUT / f"{stem}_median_num_transfers_by_hour_chart.html",
+            include_plotlyjs="cdn",
         )
+
+        # Plot
+        title = f"{name} : Median #transfers by day of week :: 2025-03"
+        fig = plot_median_num_transfers_by_day_of_week(t_by_month["202503"], title=title)
+        fig.show()
+        fig.write_html(
+            OUT / f"{stem}_median_num_transfers_by_day_of_week_chart_202503.html",
+            include_plotlyjs="cdn",
+        )
+
     return
 
 
